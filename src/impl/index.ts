@@ -5,18 +5,17 @@ import {
   WebTracerProvider,
   AlwaysOnSampler,
   AlwaysOffSampler,
-  TraceIdRatioBasedSampler
+  TraceIdRatioBasedSampler,
+  SpanProcessor,
+  SimpleSpanProcessor,
+  BatchSpanProcessor,
+  ConsoleSpanExporter
 } from '@opentelemetry/sdk-trace-web';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { ZoneContextManager } from '@opentelemetry/context-zone-peer-dep';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
-import {
-  ConsoleSpanExporter,
-  SimpleSpanProcessor,
-  BatchSpanProcessor,
-  Tracer,
-} from '@opentelemetry/sdk-trace-base';
+import { Tracer } from '@opentelemetry/sdk-trace-base';
 import { Resource, detectResourcesSync } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { B3InjectEncoding, B3Propagator } from '@opentelemetry/propagator-b3';
@@ -111,9 +110,14 @@ export default class OpenTelemetryTracingImpl {
   /** Boomerangs configured beacon_url. */
   private beaconUrl: string;
 
+  /** list of active span-processors */
+  private spanProcessors: SpanProcessor[] = [];
+
   private traceProvider: WebTracerProvider;
 
+  /** Custom span-processor to add new logic */
   private customSpanProcessor = new CustomSpanProcessor();
+  /** Custom Id-generator to influence the creation of trace and span Ids */
   private customIdGenerator = new CustomIdGenerator();
 
   public register = () => {
@@ -124,30 +128,6 @@ export default class OpenTelemetryTracingImpl {
 
     // instrument the tracer class for injecting default attributes
     this.instrumentTracerClass();
-
-    // the configuration used by the tracer
-    const tracerConfiguration: WebTracerConfig = {
-      sampler: this.resolveSampler(),
-      idGenerator: this.customIdGenerator,
-      resource: this.getBrowserDetectorResources()
-    };
-
-    // create provider
-    const providerWithZone = new WebTracerProvider(tracerConfiguration);
-
-    providerWithZone.register({
-      // changing default contextManager to use ZoneContextManager - supports asynchronous operations
-      contextManager: new ZoneContextManager(),
-      // using B3 context propagation format
-      propagator: this.getContextPropagator(),
-    });
-
-    // registering instrumentations / plugins
-    registerInstrumentations({
-      instrumentations: this.getInstrumentationPlugins(),
-      // @ts-ignore - has to be clearified why typescript doesn't like this line
-      tracerProvider: providerWithZone,
-    });
 
     // use OT collector if logging to console is not enabled
     if (!this.props.consoleOnly) {
@@ -172,16 +152,37 @@ export default class OpenTelemetryTracingImpl {
       });
 
       const multiSpanProcessor = new MultiSpanProcessor([batchSpanProcessor, this.customSpanProcessor]);
+      this.spanProcessors.push(multiSpanProcessor);
 
-      providerWithZone.addSpanProcessor(
-        multiSpanProcessor
-      );
     } else {
       // register console exporter for logging all recorded traces to the console
-      providerWithZone.addSpanProcessor(
-        new SimpleSpanProcessor(new ConsoleSpanExporter())
-      );
+      this.spanProcessors.push(new SimpleSpanProcessor(new ConsoleSpanExporter()));
     }
+
+    // the configuration used by the tracer
+    const tracerConfiguration: WebTracerConfig = {
+      sampler: this.resolveSampler(),
+      idGenerator: this.customIdGenerator,
+      resource: this.getBrowserDetectorResources(),
+      spanProcessors: this.spanProcessors
+    };
+
+    // create provider
+    const providerWithZone = new WebTracerProvider(tracerConfiguration);
+
+    providerWithZone.register({
+      // changing default contextManager to use ZoneContextManager - supports asynchronous operations
+      contextManager: new ZoneContextManager(),
+      // using B3 context propagation format
+      propagator: this.getContextPropagator(),
+    });
+
+    // registering instrumentations / plugins
+    registerInstrumentations({
+      instrumentations: this.getInstrumentationPlugins(),
+      // @ts-ignore - has to be clarified why typescript doesn't like this line
+      tracerProvider: providerWithZone,
+    });
 
     // store the webtracer
     this.traceProvider = providerWithZone;
@@ -199,11 +200,11 @@ export default class OpenTelemetryTracingImpl {
       });
     }
 
-    // mark plugin initalized
+    // mark plugin initialized
     this.initialized = true;
   };
 
-  public isInitalized = () => this.initialized;
+  public isInitialized = () => this.initialized;
 
   public getProps = () => this.props;
 

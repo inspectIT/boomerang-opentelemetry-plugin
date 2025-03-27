@@ -1,5 +1,6 @@
 import { Context } from '@opentelemetry/api';
-import { Span, ReadableSpan, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { SpanProcessor, Span } from '@opentelemetry/sdk-trace-web';
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { globalErrorHandler } from '@opentelemetry/core';
 
 /**
@@ -45,7 +46,11 @@ export class CustomSpanProcessor implements SpanProcessor {
 /**
  * Storage to allow the use of multiple SpanProcessors
  * Copy of MultiSpanProcessor from @opentelemetry/sdk-trace-base, which cannot be imported for unknown reason
+ * SDK-Version: 2.0.0
  * Original: https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-sdk-trace-base/src/MultiSpanProcessor.ts
+ *
+ * Implementation of the {@link SpanProcessor} that simply forwards all
+ * received events to a list of {@link SpanProcessor}s.
  */
 export class MultiSpanProcessor implements SpanProcessor {
   constructor(private readonly _spanProcessors: SpanProcessor[]) {}
