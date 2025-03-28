@@ -42,6 +42,9 @@
     "webpack-cli": "^6.0.1",
     "webpack-merge": "^5.10.0"
   },
+  "resolutions": {
+    "@babel/helpers": "^7.26.10"
+  },
   "prettier": {
     "singleQuote": true
   }
