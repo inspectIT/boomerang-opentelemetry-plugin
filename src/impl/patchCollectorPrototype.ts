@@ -1,6 +1,7 @@
 /**
- * The original OpenTelemetry Collector span exporter used the `Array.from` method which is overridden by Prototype. The Prototype's function does not provide
- * all functionality of the original function, thus, the exporter will fail exporting spans in case Prototype is used.
+ * The original OpenTelemetry Collector span exporter used the `Array.from` method which is overridden by Prototype.
+ * The Prototype's function does not provide all functionality of the original function, thus, the exporter will fail
+ * exporting spans in case Prototype is used.
  * See: https://github.com/prototypejs/prototype/issues/338
  * <>
  * The original exporter is using the `JSON.stringify` method. This method is calling `toJSON` functions on the object to serialize.
@@ -8,42 +9,38 @@
  * arrays are stringified separately, thus, they are considered not as an array anymore but as a string resulting in an invalid JSON string.
  * See: https://stackoverflow.com/questions/29637962/json-stringify-turned-the-value-array-into-a-string/29638420#29638420
  */
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { diag } from '@opentelemetry/api';
-import * as otlpTypes from '@opentelemetry/otlp-exporter-base/build/src/types';
-import { sendWithBeacon, sendWithXhr } from '@opentelemetry/otlp-exporter-base/build/src/platform/browser/util';
+import { JsonTraceSerializer } from '@opentelemetry/otlp-transformer'
+import { createExportTraceServiceRequest } from '@opentelemetry/otlp-transformer/build/src/trace/internal'
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 
 /**
- * Patches the `send` function of the trace exporter in order to handle
- * the span serialization correctly, when using Prototype < 1.7
+ * Patches the `serializeRequest` function of the JsonTraceSerializer,
+ * which is used by the trace exporter in order to handle the span serialization
+ * correctly, when using Prototype < 1.7
  */
-export function patchExporterClass() {
+export function patchTraceSerializer() {
   const arrayPrototype: any = Array.prototype;
   if (
     typeof Prototype !== 'undefined' &&
-    parseFloat(Prototype.Version.substr(0, 3)) < 1.7 &&
+    parseFloat(Prototype.Version.substring(0, 3)) < 1.7 &&
     typeof arrayPrototype.toJSON !== 'undefined'
   ) {
-    OTLPTraceExporter.prototype.send = sendPatch;
+    JsonTraceSerializer.serializeRequest = patchSerializeRequest;
   }
 }
 
 /**
- * This function is basically a copy of the `send` function of the following file:
- * https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.48.0/experimental/packages/otlp-exporter-base/src/platform/browser/OTLPExporterBrowserBase.ts
+ * This function is basically a copy of the `serializeRequest` function of the following file:
+ * https://github.com/open-telemetry/opentelemetry-js/blob/v2.0.0/experimental/packages/otlp-transformer/src/trace/json/trace.ts
  *
  * Here, a "fix" has been added in order to support Prototype prior 1.7.
  */
-function sendPatch(
-  items: any[],
-  onSuccess: () => void,
-  onError: (error: otlpTypes.OTLPExporterError) => void
-): void {
-  if (this._shutdownOnce.isCalled) {
-    diag.debug('Shutdown already started. Cannot send objects');
-    return;
-  }
-  const serviceRequest = this.convert(items);
+function patchSerializeRequest(arg: ReadableSpan[]) {
+  const request = createExportTraceServiceRequest(arg, {
+    useHex: true,
+    useLongBits: false,
+  });
+  const encoder = new TextEncoder();
 
   // START fix
   // in order to fix the problem, we temporarily remove the `toJSON`
@@ -55,38 +52,12 @@ function sendPatch(
   const arrayToJson = arrayPrototype.toJSON;
   delete arrayPrototype.toJSON;
   // (2)
-  const body = JSON.stringify(serviceRequest);
+  const body = JSON.stringify(request);
   // (3)
   arrayPrototype.toJSON = arrayToJson;
   // END fix
 
-  const promise = new Promise<void>((resolve, reject) => {
-    if (this._useXHR) {
-      sendWithXhr(
-        body,
-        this.url,
-        this._headers,
-        this.timeoutMillis,
-        resolve,
-        reject
-      );
-    } else {
-      sendWithBeacon(
-        body,
-        this.url,
-        { type: 'application/json' },
-        resolve,
-        reject
-      );
-    }
-  }).then(onSuccess, onError);
-
-  this._sendingPromises.push(promise);
-  const popPromise = () => {
-    const index = this._sendingPromises.indexOf(promise);
-    this._sendingPromises.splice(index, 1);
-  };
-  promise.then(popPromise, popPromise);
+  return encoder.encode(body);
 }
 
 // declares the global Prototype variable

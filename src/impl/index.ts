@@ -32,7 +32,7 @@ import { CustomXMLHttpRequestInstrumentation } from './instrumentation/xmlHttpRe
 import { CustomFetchInstrumentation } from './instrumentation/fetchInstrumentation';
 import { CustomUserInteractionInstrumentation } from './instrumentation/userInteractionInstrumentation';
 import { browserDetector } from '@opentelemetry/opentelemetry-browser-detector';
-import { patchExporterClass } from './patchCollectorPrototype';
+import { patchTraceSerializer } from './patchCollectorPrototype';
 
 /**
  * TODOs:
@@ -163,7 +163,7 @@ export default class OpenTelemetryTracingImpl {
 
       // patches the collector-export in order to be compatible with Prototype.
       if (this.props.prototypeExporterPatch) {
-        patchExporterClass();
+        patchTraceSerializer();
       }
 
       const batchSpanProcessor = new BatchSpanProcessor(exporter, {

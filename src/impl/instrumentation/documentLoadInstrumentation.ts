@@ -41,7 +41,7 @@ export function patchTracerForTransactions(): (name: string, options?: SpanOptio
     name: string,
     options: api.SpanOptions = {},
     context = api.context.active()
-  ) {
+  ) : api.Span {
     // remove span from context in case a root span is requested via options
     if (options.root) {
       context = api.trace.deleteSpan(context);
@@ -56,6 +56,7 @@ export function patchTracerForTransactions(): (name: string, options?: SpanOptio
       return nonRecordingSpan;
     }
 
+    // Overwrite logic to set spanId
     /*
       #######################################
               OVERWRITTEN LOGIC START
