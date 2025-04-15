@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     container:
       image: node:20.19
     steps:
