@@ -10,6 +10,10 @@ type ExposedXHRSuper = {
   _createSpan(xhr: XMLHttpRequest, url: string, method: string): api.Span | undefined;
 }
 
+/**
+ * Injects code into the original XMLHttpRequestInstrumentation
+ * https://github.com/open-telemetry/opentelemetry-js/blob/v2.0.0/experimental/packages/opentelemetry-instrumentation-xml-http-request/src/xhr.ts
+ */
 export class CustomXMLHttpRequestInstrumentation extends XMLHttpRequestInstrumentation {
 
   constructor(config: XMLHttpRequestInstrumentationConfig = {}, globalInstrumentationConfig: GlobalInstrumentationConfig) {

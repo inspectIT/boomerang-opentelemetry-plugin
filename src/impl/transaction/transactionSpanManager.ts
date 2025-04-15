@@ -6,7 +6,8 @@ import { CustomIdGenerator } from './transactionIdGeneration';
  */
 export class TransactionSpanManager {
 
-  private static readonly openTelemetryVersion = "0.48.0";
+  // Use the version of @opentelemetry/instrumentation-document-load
+  private static readonly openTelemetryVersion = "0.45.0";
   private static readonly documentLoadTracerName = "@opentelemetry/instrumentation-document-load";
 
   // Store trace-id, before transactionSpan was created
@@ -20,9 +21,8 @@ export class TransactionSpanManager {
 
   private static idGenerator: CustomIdGenerator;
 
-  public static initialize = (isTransactionRecordingEnabled: boolean,
-                              idGenerator: CustomIdGenerator) => {
-    TransactionSpanManager.isTransactionRecordingEnabled = isTransactionRecordingEnabled;
+  public static initialize = (idGenerator: CustomIdGenerator) => {
+    TransactionSpanManager.isTransactionRecordingEnabled = true;
     TransactionSpanManager.idGenerator = idGenerator;
   }
 
@@ -56,7 +56,7 @@ export class TransactionSpanManager {
   public static startNewTransaction = (spanName: string) => {
     // Check if transactions should be recorded, otherwise don't start transaction
     if(!TransactionSpanManager.isTransactionRecordingEnabled) {
-      console.warn("No Transaction started: Transaction recording is disabled");
+      console.warn("No transaction started: Transaction recording is disabled");
       return;
     }
 

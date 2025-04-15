@@ -114,7 +114,7 @@ import OpenTelemetryTracingImpl from './impl';
     is_complete: () => {
       // This method should determine if the plugin has completed doing what it
       // needs to do and return true if so or false otherwise
-      return impl.isInitalized();
+      return impl.isInitialized();
     },
   };
 })();

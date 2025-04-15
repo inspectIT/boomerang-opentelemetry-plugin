@@ -15,29 +15,28 @@ import {
   ConsoleSpanExporter,
   SimpleSpanProcessor,
   BatchSpanProcessor,
-  Tracer,
+  SpanProcessor,
+  BasicTracerProvider
 } from '@opentelemetry/sdk-trace-base';
-import { Resource, detectResourcesSync } from '@opentelemetry/resources';
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { MultiSpanProcessor } from '@opentelemetry/sdk-trace-base/build/src/MultiSpanProcessor'
+import { Tracer } from '@opentelemetry/sdk-trace-base/build/src/Tracer'
+import { resourceFromAttributes, defaultResource, detectResources, Resource } from '@opentelemetry/resources';
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { B3InjectEncoding, B3Propagator } from '@opentelemetry/propagator-b3';
 import { PluginProperties, ContextFunction, PropagationHeader } from '../types';
-import { MultiSpanProcessor, CustomSpanProcessor } from './spanProcessing';
-import {
-  CustomDocumentLoadInstrumentation,
-  patchTracerForTransactions
-} from './instrumentation/documentLoadInstrumentation';
+import { CustomSpanProcessor } from './spanProcessing';
+import { CustomDocumentLoadInstrumentation } from './instrumentation/documentLoadInstrumentation';
 import { CustomIdGenerator } from './transaction/transactionIdGeneration';
 import { TransactionSpanManager } from './transaction/transactionSpanManager';
 import { CustomXMLHttpRequestInstrumentation } from './instrumentation/xmlHttpRequestInstrumentation';
 import { CustomFetchInstrumentation } from './instrumentation/fetchInstrumentation';
 import { CustomUserInteractionInstrumentation } from './instrumentation/userInteractionInstrumentation';
 import { browserDetector } from '@opentelemetry/opentelemetry-browser-detector';
-import { patchExporterClass } from './patchCollectorPrototype';
+import { patchedStartSpan } from './patch/patchTracer';
+import { patchTraceSerializer } from './patch/patchCollectorPrototype';
 
 /**
- * TODOs:
- * - other provider config options via props
- * - allow propagator definition via props
+ * Implementation of your boomerang plugin
  */
 export default class OpenTelemetryTracingImpl {
   private defaultProperties: PluginProperties = {
@@ -108,13 +107,15 @@ export default class OpenTelemetryTracingImpl {
 
   private initialized: boolean = false;
 
-  /** Boomerangs configured beacon_url. */
+  /** Boomerangs configured beacon_url */
   private beaconUrl: string;
 
   private traceProvider: WebTracerProvider;
 
-  private customSpanProcessor = new CustomSpanProcessor();
+  private spanProcessors: SpanProcessor[] = [];
+
   private customIdGenerator = new CustomIdGenerator();
+  private customSpanProcessor = new CustomSpanProcessor();
 
   public register = () => {
     // return if already initialized
@@ -122,14 +123,47 @@ export default class OpenTelemetryTracingImpl {
       return;
     }
 
-    // instrument the tracer class for injecting default attributes
-    this.instrumentTracerClass();
+    // instrument the tracer provider class to return custom tracer objects,
+    // for instance to inject attributes or overwrite the startSpan function
+    this.instrumentTracerProviderClass();
+
+    // use OT collector if logging to console is not enabled
+    if (!this.props.consoleOnly) {
+      // register OpenTelemetry collector exporter
+      const collectorOptions: OTLPExporterNodeConfigBase = {
+        url: this.collectorUrlFromBeaconUrl(),
+        headers: {}, // an optional object containing custom headers to be sent with each request
+        concurrencyLimit: 10, // an optional limit on pending requests
+        ...this.props.collectorConfiguration,
+      };
+
+      const exporter = new OTLPTraceExporter(collectorOptions);
+
+      // patches the serialization of traces in order to be compatible with Prototype
+      if (this.props.prototypeExporterPatch) {
+        patchTraceSerializer();
+      }
+
+      const batchSpanProcessor = new BatchSpanProcessor(exporter, {
+        ...this.defaultProperties.exporter,
+        ...this.props.exporter,
+      });
+
+      const multiSpanProcessor = new MultiSpanProcessor([batchSpanProcessor, this.customSpanProcessor]);
+      this.spanProcessors.push(multiSpanProcessor);
+    } else {
+      // register console exporter for logging all recorded traces to the console
+      this.spanProcessors.push(
+        new SimpleSpanProcessor(new ConsoleSpanExporter())
+      );
+    }
 
     // the configuration used by the tracer
     const tracerConfiguration: WebTracerConfig = {
       sampler: this.resolveSampler(),
+      resource: this.getBrowserDetectorResources(),
       idGenerator: this.customIdGenerator,
-      resource: this.getBrowserDetectorResources()
+      spanProcessors: this.spanProcessors
     };
 
     // create provider
@@ -142,68 +176,35 @@ export default class OpenTelemetryTracingImpl {
       propagator: this.getContextPropagator(),
     });
 
-    // registering instrumentations / plugins
+    // register instrumentation plugins
     registerInstrumentations({
       instrumentations: this.getInstrumentationPlugins(),
-      // @ts-ignore - has to be clearified why typescript doesn't like this line
+      // @ts-ignore - has to be clarified why typescript doesn't like this line
       tracerProvider: providerWithZone,
     });
 
-    // use OT collector if logging to console is not enabled
-    if (!this.props.consoleOnly) {
-      // register opentelemetry collector exporter
-      const collectorOptions: OTLPExporterNodeConfigBase = {
-        url: this.collectorUrlFromBeaconUrl(),
-        headers: {}, // an optional object containing custom headers to be sent with each request
-        concurrencyLimit: 10, // an optional limit on pending requests
-        ...this.props.collectorConfiguration,
-      };
-
-      const exporter = new OTLPTraceExporter(collectorOptions);
-
-      // patches the collector-export in order to be compatible with Prototype.
-      if (this.props.prototypeExporterPatch) {
-        patchExporterClass();
-      }
-
-      const batchSpanProcessor = new BatchSpanProcessor(exporter, {
-        ...this.defaultProperties.exporter,
-        ...this.props.exporter,
-      });
-
-      const multiSpanProcessor = new MultiSpanProcessor([batchSpanProcessor, this.customSpanProcessor]);
-
-      providerWithZone.addSpanProcessor(
-        multiSpanProcessor
-      );
-    } else {
-      // register console exporter for logging all recorded traces to the console
-      providerWithZone.addSpanProcessor(
-        new SimpleSpanProcessor(new ConsoleSpanExporter())
-      );
-    }
-
-    // store the webtracer
+    // store the web tracer provider
     this.traceProvider = providerWithZone;
 
-    // If recordTransaction is enabled, initialize the transaction manager
+    // if recordTransaction is enabled, initialize the transaction manager
     if(this.isTransactionRecordingEnabled()) {
       const delay = this.props.plugins_config?.instrument_document_load?.exporterDelay;
-      TransactionSpanManager.initialize(true, this.customIdGenerator);
+      TransactionSpanManager.initialize(this.customIdGenerator);
 
+      // transaction spans should be closed at unload
       window.addEventListener("beforeunload", (event) => {
         TransactionSpanManager.getTransactionSpan().end();
         this.traceProvider.forceFlush();
-        // Synchronous blocking is necessary, so the span can be exported successfully
+        // synchronous blocking is necessary, so the span can be exported successfully
         this.sleep(delay);
       });
     }
 
-    // mark plugin initalized
+    // mark plugin initialized
     this.initialized = true;
   };
 
-  public isInitalized = () => this.initialized;
+  public isInitialized = () => this.initialized;
 
   public getProps = () => this.props;
 
@@ -212,10 +213,10 @@ export default class OpenTelemetryTracingImpl {
   };
 
   public addVarToSpans = (key: string, value: string) => {
-    // Add Variable to active span
+    // add variable to current span
     let activeSpan = api.trace.getSpan(api.context.active());
     if(activeSpan != undefined) activeSpan.setAttribute(key, value);
-    // And to all following spans
+    // and to all following spans
     this.customSpanProcessor.addCustomAttribute(key,value);
   }
 
@@ -243,46 +244,58 @@ export default class OpenTelemetryTracingImpl {
   };
 
   /**
-   * Patching the tracer class for injecting additional data into spans.
+   * Instrument the tracer provider class to return custom {@link Tracer} objects.
+   * For instance, we need to inject span attributes or overwrite the startSpan function.
    */
-  private instrumentTracerClass = () => {
+  private instrumentTracerProviderClass = () => {
     const { commonAttributes, serviceName } = this.props;
-
     let startSpanFunction: (name: string, options?: SpanOptions, context?: Context) => (Span);
+    let finalStartSpanFunction: (name: string, options?: SpanOptions, context?: Context) => (Span);
 
     // If recordTransaction is enabled, patch the Tracer to always use the transaction span as root span
     if(this.isTransactionRecordingEnabled())
-      startSpanFunction = patchTracerForTransactions();
+      startSpanFunction = patchedStartSpan;
     else
       startSpanFunction = Tracer.prototype.startSpan;
 
-    // don't patch the function if no attributes are defined AND no serviceName is defined
+    // don't wrap the function if no attributes are defined AND no serviceName is defined
     if (!serviceName && Object.keys(commonAttributes).length <= 0) {
-      return;
+      finalStartSpanFunction = startSpanFunction;
+    }
+    else {
+      // wrap additional logic around startSpan function
+      finalStartSpanFunction = function () {
+        const span: Span = startSpanFunction.apply(this, arguments);
+
+        // add common attributes to each span
+        if (commonAttributes) {
+          span.setAttributes(commonAttributes);
+        }
+
+        // manually set the service name. This is done because otherwise the service name
+        // has to specified when the tracer is initialized and at this time, the service name
+        // might not be set, yet (e.g. when using Boomerang Vars).
+        const resource: Resource = (<any>span).resource;
+        if (resource) {
+          (<any>span).resource = resource.merge(
+            resourceFromAttributes({
+              [ATTR_SERVICE_NAME]:
+                serviceName instanceof Function ? serviceName() : serviceName,
+            })
+          );
+        }
+        return span;
+      };
     }
 
-    Tracer.prototype.startSpan = function () {
-      const span: Span = startSpanFunction.apply(this, arguments);
+    // we assume 'BasicTracerProvider' is the base class of all implemented tracer providers
+    const originalGetTracer = BasicTracerProvider.prototype.getTracer;
 
-      // add common attributes to each span
-      if (commonAttributes) {
-        span.setAttributes(commonAttributes);
-      }
-
-      // manually set the service name. This is done because otherwise the service name
-      // has to specified when the tracer is initialized and at this time, the service name
-      // might not be set, yet (e.g. when using Boomerang Vars).
-      const resource: Resource = (<any>span).resource;
-      if (resource) {
-        (<any>span).resource = resource.merge(
-          new Resource({
-            [SemanticResourceAttributes.SERVICE_NAME]:
-              serviceName instanceof Function ? serviceName() : serviceName,
-          })
-        );
-      }
-      return span;
-    };
+    BasicTracerProvider.prototype.getTracer = function() {
+      const tracer = originalGetTracer.apply(this, arguments);
+      tracer.startSpan = finalStartSpanFunction;
+      return tracer;
+    }
   };
 
   /**
@@ -307,10 +320,10 @@ export default class OpenTelemetryTracingImpl {
   private getBrowserDetectorResources = () => {
     const browser_detector = this.props.plugins?.browser_detector;
     const useBrowserDetector = browser_detector != null ? browser_detector : true;
-    let resource= Resource.default();
+    let resource= defaultResource();
 
     if(useBrowserDetector) {
-      let detectedResources= detectResourcesSync({ detectors:[browserDetector] });
+      let detectedResources= detectResources({ detectors:[browserDetector] });
       resource = resource.merge(detectedResources);
     }
     return resource;
