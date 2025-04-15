@@ -13,7 +13,10 @@ import { Context, SpanOptions } from '@opentelemetry/api';
  *
  * @return patched startSpan() function
  */
-export function patchedStartSpan(name: string, options?: SpanOptions, context?: Context): api.Span {
+export function patchedStartSpan(name: string,
+                                 options: api.SpanOptions = {},
+                                 context = api.context.active()
+): api.Span {
     // remove span from context in case a root span is requested via options
     if (options.root) {
       context = api.trace.deleteSpan(context);
