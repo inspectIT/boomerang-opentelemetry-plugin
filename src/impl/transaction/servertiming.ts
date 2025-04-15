@@ -2,15 +2,6 @@
 import { PerformanceEntries } from '@opentelemetry/sdk-trace-web';
 import { TransactionSpanManager } from './transactionSpanManager';
 
-function setTransactionIds(match: RegExpMatchArray): void {
-  if (match && match[1] && match[2]) {
-    const traceId = match[1];
-    const spanId = match[2];
-    TransactionSpanManager.setTransactionTraceId(traceId);
-    TransactionSpanManager.setTransactionSpanId(spanId);
-  }
-}
-
 const ValueRegex = new RegExp('00-([0-9a-f]{32})-([0-9a-f]{16})-01');
 
 export function captureTraceParentFromPerformanceEntries(entries: PerformanceEntries): void {
@@ -22,5 +13,14 @@ export function captureTraceParentFromPerformanceEntries(entries: PerformanceEnt
       const match = st.description.match(ValueRegex);
       setTransactionIds(match);
     }
+  }
+}
+
+function setTransactionIds(match: RegExpMatchArray): void {
+  if (match && match[1] && match[2]) {
+    const traceId = match[1];
+    const spanId = match[2];
+    TransactionSpanManager.setTransactionTraceId(traceId);
+    TransactionSpanManager.setTransactionSpanId(spanId);
   }
 }

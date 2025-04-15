@@ -15,7 +15,8 @@ import {
   ConsoleSpanExporter,
   SimpleSpanProcessor,
   BatchSpanProcessor,
-  SpanProcessor
+  SpanProcessor,
+  BasicTracerProvider
 } from '@opentelemetry/sdk-trace-base';
 import { MultiSpanProcessor } from '@opentelemetry/sdk-trace-base/build/src/MultiSpanProcessor'
 import { Tracer } from '@opentelemetry/sdk-trace-base/build/src/Tracer'
@@ -24,16 +25,14 @@ import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { B3InjectEncoding, B3Propagator } from '@opentelemetry/propagator-b3';
 import { PluginProperties, ContextFunction, PropagationHeader } from '../types';
 import { CustomSpanProcessor } from './spanProcessing';
-import {
-  CustomDocumentLoadInstrumentation,
-  patchTracerForTransactions
-} from './instrumentation/documentLoadInstrumentation';
+import { CustomDocumentLoadInstrumentation } from './instrumentation/documentLoadInstrumentation';
 import { CustomIdGenerator } from './transaction/transactionIdGeneration';
 import { TransactionSpanManager } from './transaction/transactionSpanManager';
 import { CustomXMLHttpRequestInstrumentation } from './instrumentation/xmlHttpRequestInstrumentation';
 import { CustomFetchInstrumentation } from './instrumentation/fetchInstrumentation';
 import { CustomUserInteractionInstrumentation } from './instrumentation/userInteractionInstrumentation';
 import { browserDetector } from '@opentelemetry/opentelemetry-browser-detector';
+import { patchedStartSpan } from './patchTracer';
 import { patchTraceSerializer } from './patchCollectorPrototype';
 
 /**
@@ -124,8 +123,9 @@ export default class OpenTelemetryTracingImpl {
       return;
     }
 
-    // instrument the tracer class for injecting default attributes
-    this.instrumentTracerClass();
+    // instrument the tracer provider class to return custom tracer objects,
+    // for instance to inject attributes or overwrite the startSpan function
+    this.instrumentTracerProviderClass();
 
     // use OT collector if logging to console is not enabled
     if (!this.props.consoleOnly) {
@@ -243,46 +243,59 @@ export default class OpenTelemetryTracingImpl {
   };
 
   /**
-   * Patching the tracer class for injecting additional data into spans.
+   * Patching the tracer provider class to return custom tracer objects.
+   * For instance, we need to inject span attributes or overwrite the startSpan function.
    */
-  private instrumentTracerClass = () => {
+  private instrumentTracerProviderClass = () => {
     const { commonAttributes, serviceName } = this.props;
-
     let startSpanFunction: (name: string, options?: SpanOptions, context?: Context) => (Span);
 
     // If recordTransaction is enabled, patch the Tracer to always use the transaction span as root span
     if(this.isTransactionRecordingEnabled())
-      startSpanFunction = patchTracerForTransactions();
+      startSpanFunction = patchedStartSpan;
     else
       startSpanFunction = Tracer.prototype.startSpan;
 
-    // don't patch the function if no attributes are defined AND no serviceName is defined
+    let finalStartSpanFunction: (name: string, options?: SpanOptions, context?: Context) => (Span);
+
+    // don't further patch the function if no attributes are defined AND no serviceName is defined
     if (!serviceName && Object.keys(commonAttributes).length <= 0) {
-      return;
+      finalStartSpanFunction = startSpanFunction;
+    }
+    else {
+      // wrap additional logic around startSpan function
+      finalStartSpanFunction = function () {
+        const span: Span = startSpanFunction.apply(this, arguments);
+
+        // add common attributes to each span
+        if (commonAttributes) {
+          span.setAttributes(commonAttributes);
+        }
+
+        // manually set the service name. This is done because otherwise the service name
+        // has to specified when the tracer is initialized and at this time, the service name
+        // might not be set, yet (e.g. when using Boomerang Vars).
+        const resource: Resource = (<any>span).resource;
+        if (resource) {
+          (<any>span).resource = resource.merge(
+            resourceFromAttributes({
+              [ATTR_SERVICE_NAME]:
+                serviceName instanceof Function ? serviceName() : serviceName,
+            })
+          );
+        }
+        return span;
+      };
     }
 
-    Tracer.prototype.startSpan = function () {
-      const span: Span = startSpanFunction.apply(this, arguments);
+    // we assume 'BasicTracerProvider' is the base class of all implemented tracer providers
+    const originalGetTracer = BasicTracerProvider.prototype.getTracer;
 
-      // add common attributes to each span
-      if (commonAttributes) {
-        span.setAttributes(commonAttributes);
-      }
-
-      // manually set the service name. This is done because otherwise the service name
-      // has to specified when the tracer is initialized and at this time, the service name
-      // might not be set, yet (e.g. when using Boomerang Vars).
-      const resource: Resource = (<any>span).resource;
-      if (resource) {
-        (<any>span).resource = resource.merge(
-          resourceFromAttributes({
-            [ATTR_SERVICE_NAME]:
-              serviceName instanceof Function ? serviceName() : serviceName,
-          })
-        );
-      }
-      return span;
-    };
+    BasicTracerProvider.prototype.getTracer = function() {
+      const tracer = originalGetTracer.apply(this, arguments);
+      tracer.startSpan = finalStartSpanFunction;
+      return tracer;
+    }
   };
 
   /**
