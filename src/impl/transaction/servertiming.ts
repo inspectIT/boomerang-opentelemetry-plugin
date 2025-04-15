@@ -2,8 +2,6 @@
 import { PerformanceEntries } from '@opentelemetry/sdk-trace-web';
 import { TransactionSpanManager } from './transactionSpanManager';
 
-const ValueRegex = new RegExp('00-([0-9a-f]{32})-([0-9a-f]{16})-01');
-
 export function captureTraceParentFromPerformanceEntries(entries: PerformanceEntries): void {
   if (!(entries as any).serverTiming) {
     return;
@@ -24,3 +22,5 @@ function setTransactionIds(match: RegExpMatchArray): void {
     TransactionSpanManager.setTransactionSpanId(spanId);
   }
 }
+
+const ValueRegex = new RegExp('00-([0-9a-f]{32})-([0-9a-f]{16})-01');

@@ -32,8 +32,8 @@ import { CustomXMLHttpRequestInstrumentation } from './instrumentation/xmlHttpRe
 import { CustomFetchInstrumentation } from './instrumentation/fetchInstrumentation';
 import { CustomUserInteractionInstrumentation } from './instrumentation/userInteractionInstrumentation';
 import { browserDetector } from '@opentelemetry/opentelemetry-browser-detector';
-import { patchedStartSpan } from './patchTracer';
-import { patchTraceSerializer } from './patchCollectorPrototype';
+import { patchedStartSpan } from './patch/patchTracer';
+import { patchTraceSerializer } from './patch/patchCollectorPrototype';
 
 /**
  * Implementation of your boomerang plugin
@@ -114,8 +114,8 @@ export default class OpenTelemetryTracingImpl {
 
   private spanProcessors: SpanProcessor[] = [];
 
-  private customSpanProcessor = new CustomSpanProcessor();
   private customIdGenerator = new CustomIdGenerator();
+  private customSpanProcessor = new CustomSpanProcessor();
 
   public register = () => {
     // return if already initialized
@@ -161,8 +161,8 @@ export default class OpenTelemetryTracingImpl {
     // the configuration used by the tracer
     const tracerConfiguration: WebTracerConfig = {
       sampler: this.resolveSampler(),
-      idGenerator: this.customIdGenerator,
       resource: this.getBrowserDetectorResources(),
+      idGenerator: this.customIdGenerator,
       spanProcessors: this.spanProcessors
     };
 
@@ -176,25 +176,26 @@ export default class OpenTelemetryTracingImpl {
       propagator: this.getContextPropagator(),
     });
 
-    // registering instrumentation plugins
+    // register instrumentation plugins
     registerInstrumentations({
       instrumentations: this.getInstrumentationPlugins(),
       // @ts-ignore - has to be clarified why typescript doesn't like this line
       tracerProvider: providerWithZone,
     });
 
-    // store the webtracer
+    // store the web tracer provider
     this.traceProvider = providerWithZone;
 
-    // If recordTransaction is enabled, initialize the transaction manager
+    // if recordTransaction is enabled, initialize the transaction manager
     if(this.isTransactionRecordingEnabled()) {
       const delay = this.props.plugins_config?.instrument_document_load?.exporterDelay;
-      TransactionSpanManager.initialize(true, this.customIdGenerator);
+      TransactionSpanManager.initialize(this.customIdGenerator);
 
+      // transaction spans should be closed at unload
       window.addEventListener("beforeunload", (event) => {
         TransactionSpanManager.getTransactionSpan().end();
         this.traceProvider.forceFlush();
-        // Synchronous blocking is necessary, so the span can be exported successfully
+        // synchronous blocking is necessary, so the span can be exported successfully
         this.sleep(delay);
       });
     }
@@ -212,7 +213,7 @@ export default class OpenTelemetryTracingImpl {
   };
 
   public addVarToSpans = (key: string, value: string) => {
-    // add Variable to current span
+    // add variable to current span
     let activeSpan = api.trace.getSpan(api.context.active());
     if(activeSpan != undefined) activeSpan.setAttribute(key, value);
     // and to all following spans
@@ -243,12 +244,13 @@ export default class OpenTelemetryTracingImpl {
   };
 
   /**
-   * Patching the tracer provider class to return custom tracer objects.
+   * Instrument the tracer provider class to return custom {@link Tracer} objects.
    * For instance, we need to inject span attributes or overwrite the startSpan function.
    */
   private instrumentTracerProviderClass = () => {
     const { commonAttributes, serviceName } = this.props;
     let startSpanFunction: (name: string, options?: SpanOptions, context?: Context) => (Span);
+    let finalStartSpanFunction: (name: string, options?: SpanOptions, context?: Context) => (Span);
 
     // If recordTransaction is enabled, patch the Tracer to always use the transaction span as root span
     if(this.isTransactionRecordingEnabled())
@@ -256,9 +258,7 @@ export default class OpenTelemetryTracingImpl {
     else
       startSpanFunction = Tracer.prototype.startSpan;
 
-    let finalStartSpanFunction: (name: string, options?: SpanOptions, context?: Context) => (Span);
-
-    // don't further patch the function if no attributes are defined AND no serviceName is defined
+    // don't wrap the function if no attributes are defined AND no serviceName is defined
     if (!serviceName && Object.keys(commonAttributes).length <= 0) {
       finalStartSpanFunction = startSpanFunction;
     }

@@ -2,7 +2,7 @@ import * as api from '@opentelemetry/api';
 import { SpanImpl } from '@opentelemetry/sdk-trace-base/build/src/Span'
 import { isTracingSuppressed } from '@opentelemetry/core/build/src/trace/suppress-tracing'
 import { sanitizeAttributes } from '@opentelemetry/core/build/src/common/attributes';
-import { TransactionSpanManager } from './transaction/transactionSpanManager';
+import { TransactionSpanManager } from '../transaction/transactionSpanManager';
 import { Context, SpanOptions } from '@opentelemetry/api';
 
 /**

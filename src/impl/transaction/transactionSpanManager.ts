@@ -21,9 +21,8 @@ export class TransactionSpanManager {
 
   private static idGenerator: CustomIdGenerator;
 
-  public static initialize = (isTransactionRecordingEnabled: boolean,
-                              idGenerator: CustomIdGenerator) => {
-    TransactionSpanManager.isTransactionRecordingEnabled = isTransactionRecordingEnabled;
+  public static initialize = (idGenerator: CustomIdGenerator) => {
+    TransactionSpanManager.isTransactionRecordingEnabled = true;
     TransactionSpanManager.idGenerator = idGenerator;
   }
 
