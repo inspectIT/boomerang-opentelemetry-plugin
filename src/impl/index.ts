@@ -15,13 +15,15 @@ import {
   ConsoleSpanExporter,
   SimpleSpanProcessor,
   BatchSpanProcessor,
-  Tracer,
+  SpanProcessor
 } from '@opentelemetry/sdk-trace-base';
-import { Resource, detectResourcesSync } from '@opentelemetry/resources';
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { MultiSpanProcessor } from '@opentelemetry/sdk-trace-base/build/src/MultiSpanProcessor'
+import { Tracer } from '@opentelemetry/sdk-trace-base/build/src/Tracer'
+import { resourceFromAttributes, defaultResource, detectResources, Resource } from '@opentelemetry/resources';
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { B3InjectEncoding, B3Propagator } from '@opentelemetry/propagator-b3';
 import { PluginProperties, ContextFunction, PropagationHeader } from '../types';
-import { MultiSpanProcessor, CustomSpanProcessor } from './spanProcessing';
+import { CustomSpanProcessor } from './spanProcessing';
 import {
   CustomDocumentLoadInstrumentation,
   patchTracerForTransactions
@@ -35,9 +37,7 @@ import { browserDetector } from '@opentelemetry/opentelemetry-browser-detector';
 import { patchTraceSerializer } from './patchCollectorPrototype';
 
 /**
- * TODOs:
- * - other provider config options via props
- * - allow propagator definition via props
+ * Implementation of your boomerang plugin
  */
 export default class OpenTelemetryTracingImpl {
   private defaultProperties: PluginProperties = {
@@ -108,10 +108,12 @@ export default class OpenTelemetryTracingImpl {
 
   private initialized: boolean = false;
 
-  /** Boomerangs configured beacon_url. */
+  /** Boomerangs configured beacon_url */
   private beaconUrl: string;
 
   private traceProvider: WebTracerProvider;
+
+  private spanProcessors: SpanProcessor[] = [];
 
   private customSpanProcessor = new CustomSpanProcessor();
   private customIdGenerator = new CustomIdGenerator();
@@ -125,11 +127,43 @@ export default class OpenTelemetryTracingImpl {
     // instrument the tracer class for injecting default attributes
     this.instrumentTracerClass();
 
+    // use OT collector if logging to console is not enabled
+    if (!this.props.consoleOnly) {
+      // register OpenTelemetry collector exporter
+      const collectorOptions: OTLPExporterNodeConfigBase = {
+        url: this.collectorUrlFromBeaconUrl(),
+        headers: {}, // an optional object containing custom headers to be sent with each request
+        concurrencyLimit: 10, // an optional limit on pending requests
+        ...this.props.collectorConfiguration,
+      };
+
+      const exporter = new OTLPTraceExporter(collectorOptions);
+
+      // patches the serialization of traces in order to be compatible with Prototype
+      if (this.props.prototypeExporterPatch) {
+        patchTraceSerializer();
+      }
+
+      const batchSpanProcessor = new BatchSpanProcessor(exporter, {
+        ...this.defaultProperties.exporter,
+        ...this.props.exporter,
+      });
+
+      const multiSpanProcessor = new MultiSpanProcessor([batchSpanProcessor, this.customSpanProcessor]);
+      this.spanProcessors.push(multiSpanProcessor);
+    } else {
+      // register console exporter for logging all recorded traces to the console
+      this.spanProcessors.push(
+        new SimpleSpanProcessor(new ConsoleSpanExporter())
+      );
+    }
+
     // the configuration used by the tracer
     const tracerConfiguration: WebTracerConfig = {
       sampler: this.resolveSampler(),
       idGenerator: this.customIdGenerator,
-      resource: this.getBrowserDetectorResources()
+      resource: this.getBrowserDetectorResources(),
+      spanProcessors: this.spanProcessors
     };
 
     // create provider
@@ -142,46 +176,12 @@ export default class OpenTelemetryTracingImpl {
       propagator: this.getContextPropagator(),
     });
 
-    // registering instrumentations / plugins
+    // registering instrumentation plugins
     registerInstrumentations({
       instrumentations: this.getInstrumentationPlugins(),
-      // @ts-ignore - has to be clearified why typescript doesn't like this line
+      // @ts-ignore - has to be clarified why typescript doesn't like this line
       tracerProvider: providerWithZone,
     });
-
-    // use OT collector if logging to console is not enabled
-    if (!this.props.consoleOnly) {
-      // register opentelemetry collector exporter
-      const collectorOptions: OTLPExporterNodeConfigBase = {
-        url: this.collectorUrlFromBeaconUrl(),
-        headers: {}, // an optional object containing custom headers to be sent with each request
-        concurrencyLimit: 10, // an optional limit on pending requests
-        ...this.props.collectorConfiguration,
-      };
-
-      const exporter = new OTLPTraceExporter(collectorOptions);
-
-      // patches the collector-export in order to be compatible with Prototype.
-      if (this.props.prototypeExporterPatch) {
-        patchTraceSerializer();
-      }
-
-      const batchSpanProcessor = new BatchSpanProcessor(exporter, {
-        ...this.defaultProperties.exporter,
-        ...this.props.exporter,
-      });
-
-      const multiSpanProcessor = new MultiSpanProcessor([batchSpanProcessor, this.customSpanProcessor]);
-
-      providerWithZone.addSpanProcessor(
-        multiSpanProcessor
-      );
-    } else {
-      // register console exporter for logging all recorded traces to the console
-      providerWithZone.addSpanProcessor(
-        new SimpleSpanProcessor(new ConsoleSpanExporter())
-      );
-    }
 
     // store the webtracer
     this.traceProvider = providerWithZone;
@@ -199,11 +199,11 @@ export default class OpenTelemetryTracingImpl {
       });
     }
 
-    // mark plugin initalized
+    // mark plugin initialized
     this.initialized = true;
   };
 
-  public isInitalized = () => this.initialized;
+  public isInitialized = () => this.initialized;
 
   public getProps = () => this.props;
 
@@ -212,10 +212,10 @@ export default class OpenTelemetryTracingImpl {
   };
 
   public addVarToSpans = (key: string, value: string) => {
-    // Add Variable to active span
+    // add Variable to current span
     let activeSpan = api.trace.getSpan(api.context.active());
     if(activeSpan != undefined) activeSpan.setAttribute(key, value);
-    // And to all following spans
+    // and to all following spans
     this.customSpanProcessor.addCustomAttribute(key,value);
   }
 
@@ -275,8 +275,8 @@ export default class OpenTelemetryTracingImpl {
       const resource: Resource = (<any>span).resource;
       if (resource) {
         (<any>span).resource = resource.merge(
-          new Resource({
-            [SemanticResourceAttributes.SERVICE_NAME]:
+          resourceFromAttributes({
+            [ATTR_SERVICE_NAME]:
               serviceName instanceof Function ? serviceName() : serviceName,
           })
         );
@@ -307,10 +307,10 @@ export default class OpenTelemetryTracingImpl {
   private getBrowserDetectorResources = () => {
     const browser_detector = this.props.plugins?.browser_detector;
     const useBrowserDetector = browser_detector != null ? browser_detector : true;
-    let resource= Resource.default();
+    let resource= defaultResource();
 
     if(useBrowserDetector) {
-      let detectedResources= detectResourcesSync({ detectors:[browserDetector] });
+      let detectedResources= detectResources({ detectors:[browserDetector] });
       resource = resource.merge(detectedResources);
     }
     return resource;

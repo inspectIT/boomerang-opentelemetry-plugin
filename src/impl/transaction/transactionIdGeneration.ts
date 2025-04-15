@@ -7,7 +7,7 @@ const SHARED_CHAR_CODES_ARRAY = Array(32);
 
 /**
  * Copy of RandomIdGenerator with additional getTransactionTraceId()-function
- * Original: https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-sdk-trace-base/src/platform/browser/RandomIdGenerator.ts
+ * Original: https://github.com/open-telemetry/opentelemetry-js/blob/v2.0.0/packages/opentelemetry-sdk-trace-base/src/platform/browser/RandomIdGenerator.ts
  * The RandomIdGenerator of the src/platform/node/ package does not work, since 'Buffer' is not defined at runtime
  */
 

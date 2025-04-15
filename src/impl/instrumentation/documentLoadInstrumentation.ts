@@ -1,7 +1,3 @@
-/**
- * Inject code into the original the OT-DocumentLoadInstrumentation as well as the OT-Tracer
- * Also see: https://github.com/signalfx/splunk-otel-js-web/blob/main/packages/web/src/SplunkDocumentLoadInstrumentation.ts
- */
 import {
   DocumentLoadInstrumentation,
   DocumentLoadInstrumentationConfig
@@ -9,7 +5,9 @@ import {
 import * as api from '@opentelemetry/api';
 import { captureTraceParentFromPerformanceEntries } from '../transaction/servertiming';
 import { PerformanceEntries } from '@opentelemetry/sdk-trace-web';
-import { Span, Tracer } from '@opentelemetry/sdk-trace-base';
+import { Span } from '@opentelemetry/sdk-trace-base';
+import { SpanImpl } from '@opentelemetry/sdk-trace-base/build/src/Span'
+import { Tracer } from '@opentelemetry/sdk-trace-base/build/src/Tracer'
 import { isTracingSuppressed } from '@opentelemetry/core/build/src/trace/suppress-tracing'
 import { sanitizeAttributes } from '@opentelemetry/core/build/src/common/attributes';
 import { TransactionSpanManager } from '../transaction/transactionSpanManager';
@@ -24,18 +22,16 @@ export interface CustomDocumentLoadInstrumentationConfig extends DocumentLoadIns
 
 /**
  * Patch the Tracer class to use the transaction span as root span.
- * For any additional instrumentation of the startSpan() function, you have to use the
- * new returned function
- *
- * Original: https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-sdk-trace-base/src/Tracer.ts
- * OpenTelemetry version: 0.48.0
+ * For any additional instrumentation of the startSpan() function,
+ * you have to use the new returned function.
+ * Original: https://github.com/open-telemetry/opentelemetry-js/blob/v2.0.0/packages/opentelemetry-sdk-trace-base/src/Tracer.ts
  *
  * @return new startSpan() function
  */
 export function patchTracerForTransactions(): (name: string, options?: SpanOptions, context?: Context) => (api.Span) {
   /**
-   * Overwrite startSpan() in Tracer class
-   * Copy of the original startSpan()-function with additional logic inside the function to determine the parentContext
+   * Overwrite startSpan() in Tracer class at runtime.
+   * Copy of the original startSpan()-function with additional logic to determine the parentContext.
    */
   const overwrittenFunction = function (
     name: string,
@@ -56,7 +52,7 @@ export function patchTracerForTransactions(): (name: string, options?: SpanOptio
       return nonRecordingSpan;
     }
 
-    // Overwrite logic to set spanId
+    // Overwrite logic to set parentSpanContext & spanId
     /*
       #######################################
               OVERWRITTEN LOGIC START
@@ -84,9 +80,9 @@ export function patchTracerForTransactions(): (name: string, options?: SpanOptio
       #######################################
      */
 
+    let validParentSpanContext;
     let traceId;
     let traceState;
-    let parentSpanId;
     if (
       !parentSpanContext ||
       !api.trace.isSpanContextValid(parentSpanContext)
@@ -97,7 +93,7 @@ export function patchTracerForTransactions(): (name: string, options?: SpanOptio
       // New child span.
       traceId = parentSpanContext.traceId;
       traceState = parentSpanContext.traceState;
-      parentSpanId = parentSpanContext.spanId;
+      validParentSpanContext = parentSpanContext;
     }
 
     const spanKind = options.kind ?? api.SpanKind.INTERNAL;
@@ -139,18 +135,20 @@ export function patchTracerForTransactions(): (name: string, options?: SpanOptio
       Object.assign(attributes, samplingResult.attributes)
     );
 
-    const span = new Span(
-      this,
+    const span = new SpanImpl({
+      resource: this._resource,
+      scope: this.instrumentationScope,
       context,
-      name,
       spanContext,
-      spanKind,
-      parentSpanId,
+      name,
+      kind: spanKind,
       links,
-      options.startTime,
-      undefined,
-      initAttributes
-    );
+      parentSpanContext: validParentSpanContext,
+      attributes: initAttributes,
+      startTime: options.startTime,
+      spanProcessor: this._spanProcessor,
+      spanLimits: this._spanLimits,
+    });
     return span;
   }
 
@@ -166,6 +164,11 @@ type ExposedDocumentLoadSuper = {
   _endSpan(span: api.Span | undefined, performanceName: string, entries: PerformanceEntries): void;
 }
 
+/**
+ * Injects code into the original DocumentLoadInstrumentation
+ * https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-document-load-v0.45.0/plugins/web/opentelemetry-instrumentation-document-load/src/instrumentation.ts
+ * Also see: https://github.com/signalfx/splunk-otel-js-web/blob/main/packages/web/src/SplunkDocumentLoadInstrumentation.ts
+ */
 export class CustomDocumentLoadInstrumentation extends DocumentLoadInstrumentation {
   readonly component: string = 'document-load-server-timing';
   moduleName = this.component;

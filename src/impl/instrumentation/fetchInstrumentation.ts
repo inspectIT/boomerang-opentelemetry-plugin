@@ -7,6 +7,10 @@ type ExposedFetchSuper = {
   _createSpan(url: string, options: Partial<Request | RequestInit>): api.Span | undefined;
 }
 
+/**
+ * Injects code into the original FetchInstrumentation
+ * https://github.com/open-telemetry/opentelemetry-js/blob/v2.0.0/experimental/packages/opentelemetry-instrumentation-fetch/src/fetch.ts
+ */
 export class CustomFetchInstrumentation extends FetchInstrumentation {
 
   constructor(config: FetchInstrumentationConfig = {}, globalInstrumentationConfig: GlobalInstrumentationConfig) {
