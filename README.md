@@ -1,6 +1,6 @@
 # Boomerang-OpenTelemetry Plugin
 
-![](https://img.shields.io/badge/OpenTelemetry%20Version-0.48.0-success)
+![](https://img.shields.io/badge/OpenTelemetry%20Version-2.0.0-success)
 
 This is a [Boomerang plugin](https://github.com/akamai/boomerang) for collecting spans using the [OpenTelemetry](https://opentelemetry.io/) 
 framework and exporting them, e.g., to an OpenTelemetry collector.
