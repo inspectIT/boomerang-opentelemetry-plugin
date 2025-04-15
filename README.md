@@ -7,8 +7,8 @@ framework and exporting them, e.g., to an OpenTelemetry collector.
 The plugin is based on the [opentelemetry-js](https://github.com/open-telemetry/opentelemetry-js) implementation.
 The plugin version always corresponds to the opentelemetry-js version that's being used internally.
 
-![alt text](images/example_jaeger_ocelot_eum.png "Example Screenshot of recorded Spans using Jaeger and the Ocelot EUM Server")
-*Example Screenshot of recorded spans using Jaeger and the Ocelot EUM Server*
+![alt text](images/example_jaeger_ocelot_eum.png "Example screenshot of recorded spans using Jaeger and the Ocelot EUM Server")
+*Example screenshot of recorded spans using Jaeger and the Ocelot EUM Server*
 
 ## Using with Angular
 
@@ -197,6 +197,9 @@ If existing, this trace context will be used to create the document load span. T
 The trace context should be included in the `Server-Timing`-header like this: 
 
 `traceparent; desc="00-f524a0cf2c5246077dd36b094d8e1132-b5fa4f189acedb66-01"`
+
+![alt text](images/transaction-recording.png "Example screenshot of a recorded transaction using Jaeger and the Ocelot EUM Server")
+*Example screenshot of a recorded transaction using Jaeger and the Ocelot EUM Server*
 
 ## Asynchronous inclusion of Boomerang
 
