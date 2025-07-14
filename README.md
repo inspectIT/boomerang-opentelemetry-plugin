@@ -1,4 +1,4 @@
-# Boomerang-OpenTelemetry Plugin
+# Boomerang-OpenTelemetry-Plugin
 
 ![](https://img.shields.io/badge/OpenTelemetry%20Version-2.0.0-success)
 
@@ -20,13 +20,13 @@ custom build of this library where zone-js has been removed.
 
 Currently implemented features:
 
-* Automatic instrumentation of the asynchronous XMLHttpRequest API and Fetch API, including B3 header propagation. [More details ↗](https://www.npmjs.com/package/@opentelemetry/instrumentation-xml-http-request)
+* Automatic instrumentation of the asynchronous XMLHttpRequest API and Fetch API, including W3C header propagation. [More details ↗](https://www.npmjs.com/package/@opentelemetry/instrumentation-xml-http-request)
 * Automatic tracing of the initial page load including resource timings.
 * Automatic instrumentation of user interactions.
 * Automatic local context propagation using _Zone Context Manager_. [More details ↗](https://www.npmjs.com/package/@opentelemetry/context-zone)
 * Exporting collected spans to an OpenTelemetry collector.
 * Providing access to the OpenTelemetry Tracing-API for manual instrumentation.
-* Tracing of the whole transaction with the document load span as root span
+* Tracing of the whole transaction from page load to unload
 
 ### OpenTelemetry Plugins
 
@@ -146,7 +146,7 @@ Available options are:
 | `plugins.instrument_document_load`        | Enabling the [OpenTelemetry plugin](https://github.com/open-telemetry/opentelemetry-js-contrib/tree/main/packages/instrumentation-document-load) for instrumentation of the document load (initial request).                                                                                                                                         | `true`          |
 | `plugins.instrument_user_interaction`     | Enabling the [OpenTelemetry plugin](https://github.com/open-telemetry/opentelemetry-js-contrib/tree/main/packages/instrumentation-user-interaction) for instrumentation of user interactions.                                                                                                                                                        | `true`          |
 | `plugins.browser_detector`                | Enabling the [OpenTelemetry plugin](https://github.com/open-telemetry/opentelemetry-js/tree/main/experimental/packages/opentelemetry-browser-detector) for detecting browser attributes.                                                                                                                                                             | `true`          |
-| `global_instrumentation`                  | Object for configuring additional instrumentations, which will be applied to every OpenTelemetry plugin.                                                                                                                                                                                                                                             |                 |
+| `global_instrumentation`                  | Object for configuring additional instrumentation, which will be applied to every OpenTelemetry plugin.                                                                                                                                                                                                                                              |                 |
 | `global_instrumentation.requestParameter` | If enabled, existing request parameters will be added as attributes to spans and, if not excluded, will be added to the corresponding beacon as well.                                                                                                                                                                                                |                 |
 | `exporter`                                | Object for configuring the span exporter. Only used if `consoleOnly` is not enabled.                                                                                                                                                                                                                                                                 |                 |
 | `exporter.maxQueueSize`                   | The maximum queue size. After the size is reached spans are dropped.                                                                                                                                                                                                                                                                                 | `200`           |
