@@ -22,7 +22,7 @@
     "@opentelemetry/instrumentation-xml-http-request": "^0.200.0",
     "@opentelemetry/opentelemetry-browser-detector": "^0.200.0",
     "@opentelemetry/propagator-b3": "^2.0.0",
-    "@opentelemetry/sdk-trace-web": "^2.0.0",
+    "@opentelemetry/sdk-trace-web": "^2.0.1",
     "regenerator-runtime": "^0.14.1",
     "zone.js": "^0.13.3"
   },
