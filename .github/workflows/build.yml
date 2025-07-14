@@ -13,4 +13,9 @@ jobs:
         uses: actions/checkout@v3
       - name: Build plugin
         run: |
-          yarn install && yarn build
+          yarn install && yarn build && yarn build-dev
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: boomerang-opentelemetry-plugin
+          path: ./dist/*.js
