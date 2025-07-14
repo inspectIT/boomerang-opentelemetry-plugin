@@ -56,6 +56,7 @@ export default class OpenTelemetryTracingImpl {
         enabled: false,
         clearTimingResources: false,
         applyCustomAttributesOnSpan: null, //(span: Span, request: Request) => { }
+        requestHook: null, //(span: Span, request: Request) => {},
         ignoreUrls: [],
         propagateTraceHeaderCorsUrls: [],
         ignoreNetworkEvents: false
