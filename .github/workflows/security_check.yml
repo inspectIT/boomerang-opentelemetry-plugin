@@ -33,8 +33,8 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "from": "inspectIT Ocelot DepCheck <inspectit-ocelot-depcheck@resend.dev>",
-              "to": ["info.inspectit@novatec-gmbh.de"],
-              "subject": "Boomerang-OTel-Plugin Dependency-Check Report - ${{ steps.depcheck.outcome }}",
+              "to": ["info.inspectit.de@cgi.com"],
+              "subject": "Boomerang-OTel-Plugin Dependency-Check Report - ${{ steps.audit.outcome }}",
               "html": "<p>The Dependency-Check for ${{ github.repository }} completed with status: <strong>${{ steps.depcheck.outcome }}</strong></p><p>Please check the report here: <a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Report</a></p>"
             }'
       # if yarn audit failed, the job should also fail, but only after the results were uploaded
